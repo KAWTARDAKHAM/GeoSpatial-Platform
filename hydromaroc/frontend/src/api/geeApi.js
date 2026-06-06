@@ -81,3 +81,39 @@ export async function fetchWaterSources(regionName) {
   )
   return res.json()
 }
+
+export async function fetchSurfaceWater(geometry, dateStart, dateEnd) {
+  const res = await fetch('/api/analysis/surface-water', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ geometry, dateStart, dateEnd })
+  })
+  return res.json()
+}
+
+export async function fetchPrecipitation(geometry, dateStart, dateEnd) {
+  const res = await fetch('/api/analysis/precipitation', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ geometry, dateStart, dateEnd })
+  })
+  return res.json()
+}
+
+export async function fetchSurfaceWaterTile(geometry, dateStart, dateEnd) {
+  const res = await fetch('/api/analysis/surface-water-tile', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ geometry, dateStart, dateEnd })
+  })
+  return res.json()
+}
+
+export async function fetchPrecipitationTile(geometry, dateStart, dateEnd) {
+  const res = await fetch('/api/analysis/precipitation-tile', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ geometry, dateStart, dateEnd })
+  })
+  return res.json()
+}

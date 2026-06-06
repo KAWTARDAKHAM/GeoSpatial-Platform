@@ -95,7 +95,234 @@ def get_index_values(geometry, date_start, date_end):
     # retourne un dict Python avec les valeurs de chaque indice
     return stats.getInfo()
 
+def get_surface_water_score(geometry, date_start, date_end):
 
+    geo_type = geometry.type().getInfo()
+    if geo_type == 'Point':
+        geometry = geometry.buffer(5000)
+
+    # JRC Global Surface Water — occurrence sur 1984-2021
+    jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater')
+    occurrence  = jrc.select('occurrence')
+    seasonality = jrc.select('seasonality')
+    recurrence  = jrc.select('recurrence')
+
+    stats = occurrence.reduceRegion(
+        reducer    = ee.Reducer.mean(),
+        geometry   = geometry,
+        scale      = 30,
+        bestEffort = True
+    ).getInfo()
+
+    seas_stats = seasonality.reduceRegion(
+        reducer    = ee.Reducer.mean(),
+        geometry   = geometry,
+        scale      = 30,
+        bestEffort = True
+    ).getInfo()
+
+    # Superficie eau permanente km² (occurrence > 75%)
+    perm = (occurrence.gt(75)
+              .multiply(ee.Image.pixelArea())
+              .reduceRegion(
+                  reducer    = ee.Reducer.sum(),
+                  geometry   = geometry,
+                  scale      = 30,
+                  bestEffort = True
+              ).getInfo())
+
+    # Superficie eau saisonnière km² (occurrence 25-75%)
+    seas = (occurrence.gt(25).And(occurrence.lte(75))
+              .multiply(ee.Image.pixelArea())
+              .reduceRegion(
+                  reducer    = ee.Reducer.sum(),
+                  geometry   = geometry,
+                  scale      = 30,
+                  bestEffort = True
+              ).getInfo())
+
+    occ_val   = stats.get('occurrence',   0) or 0
+    seas_val  = seas_stats.get('seasonality', 0) or 0
+    perm_vals = list(perm.values())
+    seas_vals = list(seas.values())
+
+    perm_km2  = round(perm_vals[0] / 1e6, 3) if perm_vals and perm_vals[0] else 0
+    seas_km2  = round(seas_vals[0] / 1e6, 3) if seas_vals and seas_vals[0] else 0
+    total_km2 = round(perm_km2 + seas_km2, 3)
+    return {
+        'occurrence_pct': round(occ_val, 2),
+        'seasonality_months': round(seas_val, 1),
+        'permanent_km2' : perm_km2,
+        'seasonal_km2'  : seas_km2,
+        'total_km2'     : total_km2,
+        'dataset'       : 'JRC Global Surface Water v1.4'
+    }
+
+
+def get_precipitation_score(geometry, date_start, date_end):
+
+    geo_type = geometry.type().getInfo()
+    if geo_type == 'Point':
+        geometry = geometry.buffer(5000)
+
+    # CHIRPS Daily — précipitations journalières
+    chirps_total = (ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                      .filterBounds(geometry)
+                      .filterDate(date_start, date_end)
+                      .select('precipitation')
+                      .sum())
+
+    chirps_mean = (ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                     .filterBounds(geometry)
+                     .filterDate(date_start, date_end)
+                     .select('precipitation')
+                     .mean())
+
+    # Jours de pluie (precipitation > 1mm)
+    rainy_days = (ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                    .filterBounds(geometry)
+                    .filterDate(date_start, date_end)
+                    .select('precipitation')
+                    .map(lambda img: img.gt(1))
+                    .sum())
+
+    total_stats = chirps_total.reduceRegion(
+        reducer    = ee.Reducer.mean(),
+        geometry   = geometry,
+        scale      = 5000,
+        bestEffort = True
+    ).getInfo()
+
+    mean_stats = chirps_mean.reduceRegion(
+        reducer    = ee.Reducer.mean(),
+        geometry   = geometry,
+        scale      = 5000,
+        bestEffort = True
+    ).getInfo()
+
+    rainy_stats = rainy_days.reduceRegion(
+        reducer    = ee.Reducer.mean(),
+        geometry   = geometry,
+        scale      = 5000,
+        bestEffort = True
+    ).getInfo()
+
+    total_mm   = round(total_stats.get('precipitation', 0) or 0, 1)
+    daily_avg  = round(mean_stats.get('precipitation',  0) or 0, 2)
+    rainy_days_count = round(rainy_stats.get('precipitation', 0) or 0, 0)
+
+    # Equivalent annuel
+    from datetime import datetime
+    d1   = datetime.strptime(date_start, '%Y-%m-%d')
+    d2   = datetime.strptime(date_end,   '%Y-%m-%d')
+    days = max((d2 - d1).days, 1)
+    annual_equiv = round(total_mm * (365 / days), 1)
+    monthly_avg  = round(total_mm / max(days / 30, 1), 1)
+
+    # Score basé sur equivalent annuel
+    # Reference Maroc : 300mm/an = semi-aride, 600mm/an = sub-humide
+    score = min(100, round((annual_equiv / 600) * 100, 1))
+
+    if score >= 60:
+        color = '#006064'
+        label = 'Precipitations abondantes'
+    elif score >= 30:
+        color = '#00838F'
+        label = 'Precipitations moderees'
+    else:
+        color = '#B2EBF2'
+        label = 'Precipitations faibles'
+
+    return {
+        'score'        : score,
+        'color'        : color,
+        'label'        : label,
+        'total_mm'     : total_mm,
+        'daily_avg_mm' : daily_avg,
+        'monthly_avg_mm': monthly_avg,
+        'annual_equiv_mm': annual_equiv,
+        'rainy_days'   : int(rainy_days_count),
+        'dataset'      : 'CHIRPS v2.0 Daily'
+    }
+
+def get_surface_water_tile(geometry, date_start, date_end):
+
+    geo_type = geometry.type().getInfo()
+    if geo_type == 'Point':
+        geometry = geometry.buffer(5000)
+
+    # JRC Global Surface Water — occurrence
+    jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence')
+
+    # Clipper sur la géométrie
+    layer = jrc.clip(geometry)
+
+    vis_params = {
+        'min'    : 0,
+        'max'    : 100,
+        'palette': [
+            'ffffff',  # 0%  — pas d'eau
+            'b3d9ff',  # 25% — eau rare
+            '6baed6',  # 50% — eau saisonnière
+            '2171b5',  # 75% — eau fréquente
+            '08306b'   # 100% — eau permanente
+        ]
+    }
+
+    map_id = layer.getMapId(vis_params)
+    return {
+        'tile_url': map_id['tile_fetcher'].url_format,
+        'dataset' : 'JRC Global Surface Water — Occurrence',
+        'legend'  : [
+            {'color': '#ffffff', 'label': '0% — Pas d\'eau'},
+            {'color': '#b3d9ff', 'label': '25% — Eau rare'},
+            {'color': '#6baed6', 'label': '50% — Eau saisonnière'},
+            {'color': '#2171b5', 'label': '75% — Eau fréquente'},
+            {'color': '#08306b', 'label': '100% — Eau permanente'},
+        ]
+    }
+
+
+def get_precipitation_tile(geometry, date_start, date_end):
+
+    geo_type = geometry.type().getInfo()
+    if geo_type == 'Point':
+        geometry = geometry.buffer(5000)
+
+    # CHIRPS — précipitations totales sur la période
+    chirps = (ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                .filterBounds(geometry)
+                .filterDate(date_start, date_end)
+                .select('precipitation')
+                .sum()
+                .clip(geometry))
+
+    vis_params = {
+        'min'    : 0,
+        'max'    : 800,
+        'palette': [
+            'ffffff',  # 0mm   — très sec
+            'ffffb2',  # 100mm — très faible
+            'fecc5c',  # 200mm — faible
+            'fd8d3c',  # 300mm — modéré
+            'f03b20',  # 500mm — élevé
+            'bd0026'   # 800mm — très élevé
+        ]
+    }
+
+    map_id = chirps.getMapId(vis_params)
+    return {
+        'tile_url': map_id['tile_fetcher'].url_format,
+        'dataset' : 'CHIRPS v2.0 — Précipitations totales',
+        'legend'  : [
+            {'color': '#ffffff', 'label': '0 mm — Très sec'},
+            {'color': '#ffffb2', 'label': '100 mm — Faible'},
+            {'color': '#fecc5c', 'label': '200 mm — Modéré'},
+            {'color': '#fd8d3c', 'label': '300 mm — Élevé'},
+            {'color': '#f03b20', 'label': '500 mm — Très élevé'},
+            {'color': '#bd0026', 'label': '800 mm — Extrême'},
+        ]
+    }
 # ── Classification agricole à 3 niveaux ────────────────────────
 def classify_region(values):
     

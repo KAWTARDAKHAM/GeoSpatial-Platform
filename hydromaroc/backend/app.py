@@ -5,6 +5,10 @@ import os
 import ee
 
 from gee_engine import (
+    get_precipitation_score,
+    get_precipitation_tile,
+    get_surface_water_score,
+    get_surface_water_tile,
     initialize_gee,
     get_index_values,
     classify_region,
@@ -430,6 +434,85 @@ def get_water_sources():
         'region':   region,
         'count':    len(features)
     })
+
+
+@app.route('/api/analysis/surface-water', methods=['POST'])
+def surface_water():
+    data = request.json
+    required = ['geometry', 'dateStart', 'dateEnd']
+    for field in required:
+        if field not in data:
+            return jsonify({'error': 'Champ manquant : ' + field}), 400
+    try:
+        geometry = ee.Geometry(data['geometry'])
+        result   = get_surface_water_score(
+            geometry   = geometry,
+            date_start = data['dateStart'],
+            date_end   = data['dateEnd']
+        )
+        return jsonify(result)
+    except Exception as e:
+        print('ERREUR surface-water:', str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/analysis/precipitation', methods=['POST'])
+def precipitation():
+    data = request.json
+    required = ['geometry', 'dateStart', 'dateEnd']
+    for field in required:
+        if field not in data:
+            return jsonify({'error': 'Champ manquant : ' + field}), 400
+    try:
+        geometry = ee.Geometry(data['geometry'])
+        result   = get_precipitation_score(
+            geometry   = geometry,
+            date_start = data['dateStart'],
+            date_end   = data['dateEnd']
+        )
+        return jsonify(result)
+    except Exception as e:
+        print('ERREUR precipitation:', str(e))
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/analysis/surface-water-tile', methods=['POST'])
+def surface_water_tile():
+    data = request.json
+    required = ['geometry', 'dateStart', 'dateEnd']
+    for field in required:
+        if field not in data:
+            return jsonify({'error': 'Champ manquant : ' + field}), 400
+    try:
+        geometry = ee.Geometry(data['geometry'])
+        result   = get_surface_water_tile(
+            geometry   = geometry,
+            date_start = data['dateStart'],
+            date_end   = data['dateEnd']
+        )
+        return jsonify(result)
+    except Exception as e:
+        print('ERREUR surface-water-tile:', str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/analysis/precipitation-tile', methods=['POST'])
+def precipitation_tile():
+    data = request.json
+    required = ['geometry', 'dateStart', 'dateEnd']
+    for field in required:
+        if field not in data:
+            return jsonify({'error': 'Champ manquant : ' + field}), 400
+    try:
+        geometry = ee.Geometry(data['geometry'])
+        result   = get_precipitation_tile(
+            geometry   = geometry,
+            date_start = data['dateStart'],
+            date_end   = data['dateEnd']
+        )
+        return jsonify(result)
+    except Exception as e:
+        print('ERREUR precipitation-tile:', str(e))
+        return jsonify({'error': str(e)}), 500
 # app.run() doit toujours etre en dernier
 if __name__ == '__main__':
     app.run(

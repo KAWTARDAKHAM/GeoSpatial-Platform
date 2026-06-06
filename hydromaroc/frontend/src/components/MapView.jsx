@@ -2,18 +2,21 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-const SATELLITE_TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-const LIGHT_TILE     = 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png'
-
-export default function MapView({ mode, onSelect, regionsData, onRegionClick, waterSourcesGeoJSON}) {
-  const mapRef        = useRef(null)
-  const mapDiv        = useRef(null)
-  const marker        = useRef(null)
-  const rectLayer     = useRef(null)
-  const regionsLayer  = useRef(null)
-  const selectedReg   = useRef(null)
-  const allMoroccoLayer = useRef(null)
+export default function MapView({
+  mode, onSelect,
+  regionsData, onRegionClick,
+  waterSourcesGeoJSON,
+  tileUrl              
+}) {
+  const mapRef            = useRef(null)
+  const mapDiv            = useRef(null)
+  const marker            = useRef(null)
+  const rectLayer         = useRef(null)
+  const regionsLayer      = useRef(null)
+  const selectedReg       = useRef(null)
+  const allMoroccoLayer   = useRef(null)
   const waterSourcesLayer = useRef(null)
+  const geeLayer          = useRef(null)  // ← déjà présent
 
   // Init carte
   useEffect(() => {
@@ -25,7 +28,7 @@ export default function MapView({ mode, onSelect, regionsData, onRegionClick, wa
     ).addTo(mapRef.current)
   }, [])
 
-  // Gérer les modes bin/box/region — même code qu'avant
+  // Gérer les modes bin/box/region
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -143,8 +146,7 @@ export default function MapView({ mode, onSelect, regionsData, onRegionClick, wa
     }
   }, [mode, onSelect])
 
- 
-  // ── AllMorocco — afficher régions colorées ──────────────────
+  // AllMorocco — afficher régions colorées
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -157,7 +159,9 @@ export default function MapView({ mode, onSelect, regionsData, onRegionClick, wa
     if (mode !== 'allmorocco' || !regionsData) return
 
     allMoroccoLayer.current = L.geoJSON(
-      { type: 'FeatureCollection', features: regionsData.map(r => ({
+      {
+        type: 'FeatureCollection',
+        features: regionsData.map(r => ({
           type: 'Feature',
           geometry: r.geometry,
           properties: r
@@ -173,12 +177,10 @@ export default function MapView({ mode, onSelect, regionsData, onRegionClick, wa
         onEachFeature: (feature, layer) => {
           const props = feature.properties
           const score = props.score !== undefined ? `${props.score}` : '—'
-
           layer.bindTooltip(
             `<b>${props.name}</b><br/>Score: ${score}`,
             { direction: 'center', className: 'region-label' }
           )
-
           layer.on('click', () => {
             if (onRegionClick) {
               onRegionClick({
@@ -195,61 +197,82 @@ export default function MapView({ mode, onSelect, regionsData, onRegionClick, wa
 
   }, [mode, regionsData])
 
-  // ── Water sources — afficher points d'eau ──────────────────
-  // ── Water Sources — afficher les sources d'eau ──────────────
-useEffect(() => {
-  const map = mapRef.current
-  if (!map) return
+  // Water Sources — afficher les sources d'eau
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
 
-  if (waterSourcesLayer.current) {
-    map.removeLayer(waterSourcesLayer.current)
-    waterSourcesLayer.current = null
-  }
-
-  if (!waterSourcesGeoJSON) return
-
-  waterSourcesLayer.current = L.geoJSON(waterSourcesGeoJSON, {
-    style: (feature) => ({
-      color      : feature.properties.color  || '#1565C0',
-      weight     : feature.properties.weight || 2,
-      opacity    : 0.9,
-      fillColor  : feature.properties.color  || '#1E88E5',
-      fillOpacity: 0.4
-    }),
-    pointToLayer: (feature, latlng) => {
-      return L.circleMarker(latlng, {
-        radius     : 5,
-        fillColor  : feature.properties.color || '#00ACC1',
-        color      : '#fff',
-        weight     : 1.5,
-        fillOpacity: 1
-      })
-    },
-    onEachFeature: (feature, layer) => {
-      const { name, label, color } = feature.properties
-      layer.bindPopup(`
-        <div style="font-family:sans-serif;min-width:130px">
-          <b style="font-size:13px">${name}</b><br/>
-          <span style="
-            display:inline-block;margin-top:4px;padding:2px 7px;
-            border-radius:10px;background:${color}22;
-            color:${color};font-size:10px;font-weight:600
-          ">${label}</span>
-        </div>
-      `)
-      layer.on('mouseover', () => layer.openPopup())
+    if (waterSourcesLayer.current) {
+      map.removeLayer(waterSourcesLayer.current)
+      waterSourcesLayer.current = null
     }
-  }).addTo(map)
 
-  if (waterSourcesLayer.current.getBounds().isValid()) {
-    map.fitBounds(waterSourcesLayer.current.getBounds(), { padding: [40, 40] })
-  }
+    if (!waterSourcesGeoJSON) return
 
-}, [waterSourcesGeoJSON])
+    waterSourcesLayer.current = L.geoJSON(waterSourcesGeoJSON, {
+      style: (feature) => ({
+        color      : feature.properties.color  || '#1565C0',
+        weight     : feature.properties.weight || 2,
+        opacity    : 0.9,
+        fillColor  : feature.properties.color  || '#1E88E5',
+        fillOpacity: 0.4
+      }),
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius     : 5,
+          fillColor  : feature.properties.color || '#00ACC1',
+          color      : '#fff',
+          weight     : 1.5,
+          fillOpacity: 1
+        })
+      },
+      onEachFeature: (feature, layer) => {
+        const { name, label, color } = feature.properties
+        layer.bindPopup(`
+          <div style="font-family:sans-serif;min-width:130px">
+            <b style="font-size:13px">${name}</b><br/>
+            <span style="
+              display:inline-block;margin-top:4px;padding:2px 7px;
+              border-radius:10px;background:${color}22;
+              color:${color};font-size:10px;font-weight:600
+            ">${label}</span>
+          </div>
+        `)
+        layer.on('mouseover', () => layer.openPopup())
+      }
+    }).addTo(map)
+
+    if (waterSourcesLayer.current.getBounds().isValid()) {
+      map.fitBounds(waterSourcesLayer.current.getBounds(), { padding: [40, 40] })
+    }
+
+  }, [waterSourcesGeoJSON])
+
+  // ── NOUVEAU — Tile GEE (Surface Water / Precipitation) ──────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    // Supprimer l'ancien layer
+    if (geeLayer.current) {
+      map.removeLayer(geeLayer.current)
+      geeLayer.current = null
+    }
+
+    if (!tileUrl) return
+
+    // Ajouter le nouveau layer
+    geeLayer.current = L.tileLayer(tileUrl, {
+      opacity: 0.8,
+      maxZoom: 18
+    }).addTo(map)
+
+  }, [tileUrl])   // ← se déclenche chaque fois que tileUrl change
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={mapDiv} style={{ width: '100%', height: '100%' }} />
+
       {mode === 'box' && (
         <div style={{
           position: 'absolute', top: '10px', left: '50%',
@@ -262,6 +285,7 @@ useEffect(() => {
           Cliquer et glisser pour dessiner la zone
         </div>
       )}
+
       {mode === 'region' && (
         <div style={{
           position: 'absolute', top: '10px', left: '50%',
@@ -277,5 +301,3 @@ useEffect(() => {
     </div>
   )
 }
-
- 
